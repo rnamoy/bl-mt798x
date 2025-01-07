@@ -7,7 +7,7 @@ on:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # 显式指定 ubuntu-22.04，避免迁移问题
     steps:
       # 步骤 1：检出你的仓库
       - name: Checkout your repository
