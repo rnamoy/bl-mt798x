@@ -12,12 +12,13 @@
 #include <linux/string.h>
 #include <asm/global_data.h>
 #include <failsafe/fw_type.h>
+#ifdef CONFIG_CMD_GL_BTN
+#include <glbtn.h>
+#endif
 #include "upgrade_helper.h"
 #include "colored_print.h"
 
 DECLARE_GLOBAL_DATA_PTR;
-
-void led_control(const char *cmd, const char *name, const char *arg);
 
 const char *fw_to_part_name(failsafe_fw_t fw)
 {
@@ -94,8 +95,10 @@ int failsafe_write_image(const void *data, size_t size, failsafe_fw_t fw)
 	if (!dpe)
 		return -ENODEV;
 
+#ifdef CONFIG_CMD_GL_BTN
 	led_control("led", "system_led", "off");
 	led_control("ledblink", "blink_led", "100");
+#endif
 	printf("\n");
 	cprintln(PROMPT, "*** Upgrading %s ***", dpe->name);
 	cprintln(PROMPT, "*** Data: %zd (0x%zx) bytes at 0x%08lx ***",
@@ -103,8 +106,10 @@ int failsafe_write_image(const void *data, size_t size, failsafe_fw_t fw)
 	printf("\n");
 
 	ret = dpe->write(dpe->priv, dpe, data, size);
+#ifdef CONFIG_CMD_GL_BTN
 	led_control("ledblink", "blink_led", "0");
 	led_control("led", "system_led", "on");
+#endif
 	if (ret)
 		return ret;
 

@@ -24,9 +24,13 @@
 
 int boot_from_mem(ulong data_load_addr)
 {
-	char cmd[64];
+	char cmd[128];
+	const char *bootconf = env_get("bootconf");
 
-	snprintf(cmd, sizeof(cmd), "bootm 0x%lx", data_load_addr);
+	if (bootconf && strlen(bootconf) > 0)
+		snprintf(cmd, sizeof(cmd), "bootm 0x%lx#%s", data_load_addr, bootconf);
+	else
+		snprintf(cmd, sizeof(cmd), "bootm 0x%lx", data_load_addr);
 
 	return run_command(cmd, 0);
 }
@@ -57,7 +61,16 @@ static int _boot_from_mmc(u32 dev, struct mmc *mmc, u64 offset)
 #endif
 #if defined(CONFIG_FIT)
 	case IMAGE_FORMAT_FIT:
-		size = fit_get_size((const void *)data_load_addr);
+		size = fit_get_totalsize((const void *)data_load_addr);
+		if (size <= 0x2000) {
+			/* Load FDT header into memory */
+			ret = _mmc_read(mmc, offset, (void *)data_load_addr, size);
+			if (ret)
+				return ret;
+
+			/* Read whole FIT image */
+			size = fit_get_totalsize((const void *)data_load_addr);
+		}
 		break;
 #endif
 	default:
@@ -107,6 +120,8 @@ int boot_from_mmc_partition(u32 dev, int part, const char *part_name)
 #ifdef CONFIG_MTD
 int boot_from_mtd(struct mtd_info *mtd, u64 offset)
 {
+	u32 fit_hdrsize = sizeof(struct fdt_header);
+	u32 legacy_hdrsize = image_get_header_size();
 	ulong data_load_addr;
 	u32 size;
 	int ret;
@@ -118,8 +133,10 @@ int boot_from_mtd(struct mtd_info *mtd, u64 offset)
 	data_load_addr = CONFIG_LOADADDR;
 #endif
 
-	ret = mtd_read_generic(mtd, offset, (void *)data_load_addr,
-			       mtd->writesize);
+	size = max3(fit_hdrsize, legacy_hdrsize, mtd->writesize);
+
+	ret = mtd_read_skip_bad(mtd, offset, size, mtd->size, NULL,
+			        (void *)data_load_addr);
 	if (ret)
 		return ret;
 
@@ -131,7 +148,17 @@ int boot_from_mtd(struct mtd_info *mtd, u64 offset)
 #endif
 #if defined(CONFIG_FIT)
 	case IMAGE_FORMAT_FIT:
-		size = fit_get_size((const void *)data_load_addr);
+		size = fit_get_totalsize((const void *)data_load_addr);
+		if (size <= 0x2000) {
+			/* Load FDT header into memory */
+			ret = mtd_read_skip_bad(mtd, offset, size, mtd->size, NULL,
+						(void *)data_load_addr);
+			if (ret)
+				return ret;
+
+			/* Read whole FIT image */
+			size = fit_get_totalsize((const void *)data_load_addr);
+		}
 		break;
 #endif
 	default:
@@ -140,50 +167,8 @@ int boot_from_mtd(struct mtd_info *mtd, u64 offset)
 		return -EINVAL;
 	}
 
-	ret = mtd_read_generic(mtd, offset, (void *)data_load_addr, size);
-	if (ret)
-		return ret;
-
-	return boot_from_mem(data_load_addr);
-}
-#endif
-
-#ifdef CONFIG_DM_SPI_FLASH
-int boot_from_snor(struct spi_flash *snor, u32 offset)
-{
-	ulong data_load_addr;
-	u32 size;
-	int ret;
-
-	/* Set load address */
-#if defined(CONFIG_SYS_LOAD_ADDR)
-	data_load_addr = CONFIG_SYS_LOAD_ADDR;
-#elif defined(CONFIG_LOADADDR)
-	data_load_addr = CONFIG_LOADADDR;
-#endif
-
-	ret = snor_read_generic(snor, offset, (void *)data_load_addr,
-				snor->page_size);
-	if (ret)
-		return ret;
-
-	switch (genimg_get_format((const void *)data_load_addr)) {
-#if defined(CONFIG_LEGACY_IMAGE_FORMAT)
-	case IMAGE_FORMAT_LEGACY:
-		size = image_get_image_size((const void *)data_load_addr);
-		break;
-#endif
-#if defined(CONFIG_FIT)
-	case IMAGE_FORMAT_FIT:
-		size = fit_get_size((const void *)data_load_addr);
-		break;
-#endif
-	default:
-		printf("Error: no Image found in SPI-NOR at 0x%x\n", offset);
-		return -EINVAL;
-	}
-
-	ret = snor_read_generic(snor, offset, (void *)data_load_addr, size);
+	ret = mtd_read_skip_bad(mtd, offset, size, mtd->size, NULL,
+				(void *)data_load_addr);
 	if (ret)
 		return ret;
 
